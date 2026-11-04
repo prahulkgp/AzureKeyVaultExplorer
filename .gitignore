@@ -458,3 +458,8 @@ $RECYCLE.BIN/
 /mpdev
 .DS_Store
 /src/uno/AzureKeyVaultStudio/AzureKeyVaultStudio/msbuild.ps1
+
+# Nix devshell
+.devshell/
+.direnv/
+result
