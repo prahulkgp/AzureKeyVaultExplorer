@@ -47,6 +47,14 @@ public partial class ExternalVaultDialogViewModel : ObservableValidator
             WeakReferenceMessenger.Default.Send(new AddDocumentMessage(model.Data));
             WeakReferenceMessenger.Default.Send(new PinKeyVaultMessage(model));
         }
+        catch (Azure.RequestFailedException ex) when (ex.Status == 403)
+        {
+            // No Azure Resource Manager read on the vault (e.g. a service principal with data-plane access only).
+            // Open the vault directly by its data-plane URI; secrets/keys/certs calls go to <name>.vault.azure.net.
+            Debug.WriteLine($"ARM read denied, opening vault by URI: {ex.Message}");
+            WeakReferenceMessenger.Default.Send(new AddDocumentMessage(
+                VaultService.CreateDataPlaneOnlyVaultData(SubscriptionId.Trim(), ResourceGroupName.Trim(), KeyVaultName.Trim())));
+        }
         catch (Exception ex)
         {
             WeakReferenceMessenger.Default.Send(new ShowValidationErrorMessage(ex.Message), MessengerToken);

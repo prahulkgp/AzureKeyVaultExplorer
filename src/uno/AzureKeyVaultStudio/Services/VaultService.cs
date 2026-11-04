@@ -162,6 +162,31 @@ public partial class VaultService
     }
 
     /// <summary>
+    /// Builds vault data without calling Azure Resource Manager, for identities that only have data-plane access.
+    /// </summary>
+    public static KeyVaultData CreateDataPlaneOnlyVaultData(string subscriptionId, string resourceGroupName, string vaultName, Microsoft.Identity.Client.AzureCloudInstance cloud = Microsoft.Identity.Client.AzureCloudInstance.AzurePublic)
+    {
+        var suffix = cloud switch
+        {
+            Microsoft.Identity.Client.AzureCloudInstance.AzureChina => "vault.azure.cn",
+            Microsoft.Identity.Client.AzureCloudInstance.AzureUsGovernment => "vault.usgovcloudapi.net",
+            Microsoft.Identity.Client.AzureCloudInstance.AzureGermany => "vault.microsoftazure.de",
+            _ => "vault.azure.net"
+        };
+
+        var properties = new Azure.ResourceManager.KeyVault.Models.KeyVaultProperties(Guid.Empty, new Azure.ResourceManager.KeyVault.Models.KeyVaultSku(Azure.ResourceManager.KeyVault.Models.KeyVaultSkuFamily.A, Azure.ResourceManager.KeyVault.Models.KeyVaultSkuName.Standard))
+        {
+            VaultUri = new Uri($"https://{vaultName}.{suffix}/")
+        };
+
+        return Azure.ResourceManager.KeyVault.Models.ArmKeyVaultModelFactory.KeyVaultData(
+            id: KeyVaultResource.CreateResourceIdentifier(subscriptionId, resourceGroupName, vaultName),
+            name: vaultName,
+            resourceType: new ResourceType("Microsoft.KeyVault/vaults"),
+            properties: properties);
+    }
+
+    /// <summary>
     /// returns all key vaults based on all the subscriptions the user has rights to view.
     /// </summary>
     /// <returns></returns>

@@ -19,6 +19,10 @@ public static class Constants
     public const string SettingsPageClientIdCheckbox = "SettingsPageClientIdCheckbox";
     public const string SettingsPageTenantIdCheckbox = "SettingsPageTenantIdCheckbox";
     public const string SelectedCloudEnvironmentName = "AzureCloudInstance";
+    public const string SettingsPageServicePrincipalCheckbox = "SettingsPageServicePrincipalCheckbox";
+    public const string ClientSecretKeychainServiceName = $"{AppName}_client_secret";
+    public const string ClientSecretKeychainAccountName = $"{AppName}_service_principal";
+    public const string ClientSecretFileName = $"{AppName}_client_secret.bin";
 
     //The Application or Client ID will be generated while registering the app in the Azure portal. This can also be set in settings of the app rather than recompiling.
     public static readonly string ClientId = "fdc1e6da-d735-4627-af3e-d40377f55713";

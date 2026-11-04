@@ -127,7 +127,8 @@ public partial class App : Application
                     try
                     {
                         var authService = sp.GetRequiredService<AuthService>();
-                        var forcedRefresh = !await authService.LoginOrRefreshAsync(cancellationToken);
+                        // Silent only: never pop the browser on startup/refresh. Interactive sign-in happens from the login page.
+                        var forcedRefresh = await authService.RefreshTokenAsync(cancellationToken) is null;
                         if (!forcedRefresh)
                         {
                             tokenDictionary ??= new Dictionary<string, string>();

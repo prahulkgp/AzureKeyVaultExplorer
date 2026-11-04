@@ -21,6 +21,11 @@ public class AuthService
 
     public AzureCloudInstance CloudInstance { get; private set; }
 
+    private Lazy<IConfidentialClientApplication?> _servicePrincipalClient;
+
+    /// <summary>True when the user enabled service principal (client credentials) sign-in in settings.</summary>
+    public bool IsServicePrincipalMode => _localSettings.GetValue(Constants.SettingsPageServicePrincipalCheckbox, false);
+
     public AuthService(ILocalSettingsService localSettings, ILogger<AuthService> logger)
     {
         _localSettings = localSettings;
@@ -29,6 +34,89 @@ public class AuthService
         _authenticationClient = new Lazy<IPublicClientApplication>(
             BuildAuthenticationClient,
             LazyThreadSafetyMode.ExecutionAndPublication);
+
+        _servicePrincipalClient = new Lazy<IConfidentialClientApplication?>(
+            BuildServicePrincipalClient,
+            LazyThreadSafetyMode.ExecutionAndPublication);
+    }
+
+    private IConfidentialClientApplication? BuildServicePrincipalClient()
+    {
+        string clientId = _localSettings.GetValue(Constants.CustomClientIdName, "")?.Trim() ?? "";
+        string tenantId = _localSettings.GetValue(Constants.CustomTenantIdName, "")?.Trim() ?? "";
+        string? secret = ClientSecretStore.Get();
+
+        if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(secret))
+        {
+            _logger.LogWarning("Service principal sign-in is enabled but the client ID, tenant ID or client secret is missing.");
+            return null;
+        }
+
+        int savedCloudId = _localSettings.GetValue<int>(Constants.SelectedCloudEnvironmentName, (int)AzureCloudInstance.AzurePublic);
+        CloudInstance = (AzureCloudInstance)savedCloudId;
+        if (CloudInstance == AzureCloudInstance.None)
+            CloudInstance = AzureCloudInstance.AzurePublic;
+
+        AzurePortalBaseUri = GetPortalBaseUri(CloudInstance);
+
+        // App-only tokens are cached in memory by MSAL; the secret itself stays in the keychain / DPAPI store.
+        return ConfidentialClientApplicationBuilder.Create(clientId)
+            .WithClientSecret(secret)
+            .WithAuthority(CloudInstance, tenantId)
+            .Build();
+    }
+
+    private static string GetPortalBaseUri(AzureCloudInstance cloud) => cloud switch
+    {
+        AzureCloudInstance.AzureChina => "https://portal.azure.cn",
+        AzureCloudInstance.AzureGermany => "https://portal.microsoftazure.de",
+        AzureCloudInstance.AzureUsGovernment => "https://portal.azure.us",
+        _ => "https://portal.azure.com"
+    };
+
+    private async Task<AuthenticationResult?> AcquireServicePrincipalTokenAsync(string[] scopes, CancellationToken cancellationToken = default)
+    {
+        var client = _servicePrincipalClient.Value;
+        if (client is null)
+        {
+            NotifyServicePrincipalError("Service principal sign-in needs a custom Client ID, Tenant ID and Client Secret in Settings.");
+            return null;
+        }
+
+        try
+        {
+            var result = await client.AcquireTokenForClient(scopes).ExecuteAsync(cancellationToken);
+            IsAuthenticated = true;
+            TenantId = result.TenantId ?? _localSettings.GetValue(Constants.CustomTenantIdName, "");
+            TenantName = TenantId;
+            Expiry = result.ExpiresOn;
+            var clientId = _localSettings.GetValue(Constants.CustomClientIdName, "");
+            AuthenticatedUserClaims = new AuthenticatedUserClaims
+            {
+                Username = clientId,
+                TenantId = TenantId,
+                Name = "Service principal",
+                Email = $"Service principal {clientId}"
+            };
+            return result;
+        }
+        catch (MsalException ex)
+        {
+            _logger.LogError(ex, "Service principal token request failed.");
+            NotifyServicePrincipalError(ex.Message);
+            return null;
+        }
+    }
+
+    private static void NotifyServicePrincipalError(string message)
+    {
+        WeakReferenceMessenger.Default.Send(new SendInAppNotificationMessage(new CommunityToolkit.WinUI.Behaviors.Notification
+        {
+            Severity = InfoBarSeverity.Error,
+            Title = "Service principal sign-in failed",
+            Message = message,
+            Duration = TimeSpan.FromSeconds(15)
+        }));
     }
 
     private IPublicClientApplication BuildAuthenticationClient()
@@ -55,13 +143,7 @@ public class AuthService
         else
             builder = builder.WithAuthority(CloudInstance, AadAuthorityAudience.AzureAdMultipleOrgs);
 
-        AzurePortalBaseUri = CloudInstance switch
-        {
-            AzureCloudInstance.AzureChina => "https://portal.azure.cn",
-            AzureCloudInstance.AzureGermany => "https://portal.microsoftazure.de",
-            AzureCloudInstance.AzureUsGovernment => "https://portal.azure.us",
-            _ => "https://portal.azure.com"
-        };
+        AzurePortalBaseUri = GetPortalBaseUri(CloudInstance);
 
         return builder.Build();
     }
@@ -129,6 +211,9 @@ public class AuthService
 
     public async Task<AuthenticationResult?> GetAzureArmTokenSilent()
     {
+        if (IsServicePrincipalMode)
+            return await AcquireServicePrincipalTokenAsync(Constants.AzureRMScope);
+
         var account = await GetPrimaryAccountAsync();
         if (account is null)
         {
@@ -141,6 +226,9 @@ public class AuthService
 
     public async Task<AuthenticationResult?> GetAzureKeyVaultTokenSilent()
     {
+        if (IsServicePrincipalMode)
+            return await AcquireServicePrincipalTokenAsync(Constants.KvScope);
+
         var account = await GetPrimaryAccountAsync();
         if (account is null)
         {
@@ -173,6 +261,9 @@ public class AuthService
 
     public async Task<AuthenticationResult?> LoginAsync(CancellationToken cancellationToken)
     {
+        if (IsServicePrincipalMode)
+            return await ServicePrincipalSignInAsync(cancellationToken);
+
         AuthenticationResult authenticationResult;
         try
         {
@@ -226,8 +317,20 @@ public class AuthService
         }
     }
 
+    private async Task<AuthenticationResult?> ServicePrincipalSignInAsync(CancellationToken cancellationToken)
+    {
+        // Validate the credentials up front with an ARM token; Key Vault tokens are requested on demand.
+        var result = await AcquireServicePrincipalTokenAsync(Constants.AzureRMScope, cancellationToken);
+        if (result is not null)
+            WeakReferenceMessenger.Default.Send(new AuthenticationStateChangedMessage(AuthenticatedUserClaims));
+        return result;
+    }
+
     public async Task<AuthenticationResult?> RefreshTokenAsync(CancellationToken cancellationToken)
     {
+        if (IsServicePrincipalMode)
+            return await ServicePrincipalSignInAsync(cancellationToken);
+
         await EnsureCacheAttached();
         AuthenticationResult authenticationResult;
         var accounts = await authenticationClient.GetAccountsAsync();
@@ -274,6 +377,15 @@ public class AuthService
 
     private async Task RemoveAccount()
     {
+        if (IsServicePrincipalMode)
+        {
+            // Drop in-memory app tokens; the stored secret is kept so the user can sign in again.
+            _servicePrincipalClient = new Lazy<IConfidentialClientApplication?>(BuildServicePrincipalClient, LazyThreadSafetyMode.ExecutionAndPublication);
+            IsAuthenticated = false;
+            AuthenticatedUserClaims = null;
+            return;
+        }
+
         await EnsureCacheAttached();
         var accounts = await authenticationClient.GetAccountsAsync();
         Account = null;
@@ -289,6 +401,9 @@ public class AuthService
     public async Task<bool> LoginOrRefreshAsync(CancellationToken cancellationToken)
     {
         var result = await RefreshTokenAsync(cancellationToken);
+        if (IsServicePrincipalMode)
+            return result is not null;
+
         if (result is null)
         {
             result = await LoginAsync(cancellationToken);

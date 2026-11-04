@@ -139,6 +139,27 @@
                                 Text="{x:Bind ViewModel.CustomClientId, Mode=TwoWay}" />
                         </controls:SettingsCard>
 
+                        <controls:SettingsCard>
+                            <controls:SettingsCard.Description>
+                                <StackPanel Spacing="4">
+                                    <CheckBox
+                                        Name="SettingsPageServicePrincipalCheckbox"
+                                        Content="Sign in as a service principal with a client secret (requires application restart)"
+                                        IsChecked="{x:Bind ViewModel.SettingsPageServicePrincipalCheckbox, Mode=TwoWay}" />
+                                    <TextBlock
+                                        Style="{ThemeResource CaptionTextBlockStyle}"
+                                        Text="Uses the custom Client ID and Tenant ID above. The secret is stored in the macOS Keychain (DPAPI on Windows)."
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                            </controls:SettingsCard.Description>
+                            <PasswordBox
+                                Name="SettingsPageClientSecretBox"
+                                MinWidth="325"
+                                IsEnabled="{x:Bind SettingsPageServicePrincipalCheckbox.IsChecked, Mode=OneWay, Converter={StaticResource NullToBoolConverter}}"
+                                Password="{x:Bind ViewModel.ClientSecret, Mode=TwoWay}"
+                                PlaceholderText="{x:Bind ViewModel.ClientSecretPlaceholder, Mode=OneWay}" />
+                        </controls:SettingsCard>
+
                         <controls:SettingsCard x:Uid="SettingsPurgeDatabaseCard">
                             <Button x:Uid="PurgeDbButton" Command="{x:Bind ViewModel.DeleteDatabaseCommand, Mode=OneWay}" />
                         </controls:SettingsCard>

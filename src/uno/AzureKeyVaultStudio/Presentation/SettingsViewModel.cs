@@ -57,6 +57,16 @@ public partial class SettingsViewModel : ObservableRecipient
     public partial int ClearClipboardTimeout { get; set; }
 
     [ObservableProperty]
+    public partial bool SettingsPageServicePrincipalCheckbox { get; set; }
+
+    /// <summary>Only used for entry; never loaded back from the secret store.</summary>
+    [ObservableProperty]
+    public partial string ClientSecret { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string ClientSecretPlaceholder { get; set; } = "Client secret";
+
+    [ObservableProperty]
     public partial bool IsAuthenticated { get; set; } = false;
 
     [ObservableProperty]
@@ -158,6 +168,8 @@ public partial class SettingsViewModel : ObservableRecipient
             SettingsPageClientIdCheckbox = _localSettings.GetValue(nameof(SettingsPageClientIdCheckbox), false);
             SettingsPageTenantIdCheckbox = _localSettings.GetValue(nameof(SettingsPageTenantIdCheckbox), false);
             ClearClipboardTimeout = _localSettings.GetValue(nameof(ClearClipboardTimeout), 10);
+            SettingsPageServicePrincipalCheckbox = _localSettings.GetValue(Constants.SettingsPageServicePrincipalCheckbox, false);
+            ClientSecretPlaceholder = ClientSecretStore.Get() is null ? "Client secret" : "Saved (enter a new value to replace)";
             var savedCloud = (AzureCloudInstance)_localSettings.GetValue<int>(Constants.SelectedCloudEnvironmentName, (int)AzureCloudInstance.None);
             SelectedCloudEnvironmentIndex = Array.IndexOf(AzureCloudInstances, savedCloud) is var idx and >= 0 ? idx : 0;
             Claims = _authService?.AuthenticatedUserClaims;
@@ -177,6 +189,30 @@ public partial class SettingsViewModel : ObservableRecipient
         Save(nameof(ClearClipboardTimeout), ClearClipboardTimeout < 0 ? 10 : ClearClipboardTimeout);
         Save(nameof(CustomClientId), CustomClientId?.Trim() ?? string.Empty);
         Save(nameof(CustomTenantId), CustomTenantId?.Trim() ?? string.Empty);
+        Save(Constants.SettingsPageServicePrincipalCheckbox, SettingsPageServicePrincipalCheckbox);
+
+        if (!string.IsNullOrWhiteSpace(ClientSecret))
+        {
+            try
+            {
+                ClientSecretStore.Set(ClientSecret.Trim());
+                ClientSecretPlaceholder = "Saved (enter a new value to replace)";
+            }
+            catch (Exception ex)
+            {
+                WeakReferenceMessenger.Default.Send(new SendInAppNotificationMessage(new Notification
+                {
+                    Severity = InfoBarSeverity.Error,
+                    Title = "Client secret not saved",
+                    Message = ex.Message,
+                    Duration = TimeSpan.FromSeconds(10)
+                }));
+            }
+            finally
+            {
+                ClientSecret = string.Empty;
+            }
+        }
 
         _ = _localizationService.SetCurrentCultureAsync(Language);
         WeakReferenceMessenger.Default.Send(new SendInAppNotificationMessage(new Notification
