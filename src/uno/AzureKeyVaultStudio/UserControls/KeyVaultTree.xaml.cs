@@ -1,28 +1,26 @@
 using System.Collections.Specialized;
 using System.ComponentModel;
-using Azure.ResourceManager.KeyVault;
-using AzureKeyVaultStudio.Models;
 using AzureKeyVaultStudio.UserControls.ViewModels;
 using CommunityToolkit.WinUI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Input;
+using Windows.Foundation;
 using static AzureKeyVaultStudio.Models.KvTreeNodeModel;
 
 namespace AzureKeyVaultStudio.UserControls;
 
 public sealed partial class KeyVaultTree : UserControl
 {
-    private IStringLocalizer? _localizer { get; set; }
     public DispatcherQueueTimer _debounceTimerSearch = DispatcherQueue.GetForCurrentThread().CreateTimer();
+    private readonly MenuFlyout keyVaultMenuFlyout;
 
     public KeyVaultTreeViewModel? ViewModel => DataContext as KeyVaultTreeViewModel;
 
     public KeyVaultTree()
     {
         InitializeComponent();
-        //Loaded += KeyVaultTree_Loaded;
         DataContextChanged += OnDataContextChanged;
-
+        keyVaultMenuFlyout = Resources["TreeViewContextFlyout"] as MenuFlyout;
 #if HAS_UNO
         var flyout = Resources["TreeViewContextFlyout"] as MenuFlyout;
         flyout.DataContext = null;
@@ -40,19 +38,26 @@ public sealed partial class KeyVaultTree : UserControl
 
     private void OnDataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
     {
- 
-        if (ViewModel?.RefreshCommand is not null && ViewModel.HasFetchedData == false)
-        {
-            Bindings.Update();
-            DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
-            {
-                if (ViewModel.RefreshCommand.IsRunning)
-                    return;
-                ViewModel.RefreshCommand.Execute(null);
-                args.Handled = true;
-            });
+#if HAS_UNO_SKIA
+    Bindings.Update();
+#endif
 
+        if (ViewModel?.RefreshCommand is null || ViewModel.HasFetchedData)
+            return;
+
+        if (ViewModel?.RefreshCommand is null || ViewModel.HasFetchedData)
+        {
+            return;
         }
+        Bindings.Update();
+
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            if (ViewModel is { HasFetchedData: false } vm && !vm.RefreshCommand.IsRunning)
+            {
+                vm.RefreshCommand.Execute(null);
+            }
+        });
     }
 
     private void TextBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -120,5 +125,23 @@ public sealed partial class KeyVaultTree : UserControl
     {
         args.Cancel = true;
         return;
+    }
+
+    // since we are not using a data template, we need to hide the menu for specfic items.
+    // this is due to a DataTemplate bug which would crash the app in v2.0.0
+    private void TreeViewItem_ContextRequested(UIElement sender, ContextRequestedEventArgs args)
+    {
+        var point = new Point(0, 0);
+        if (sender is TreeViewItem && (sender as TreeViewItem)!.DataContext is KvKeyVaultResourceModel)
+        {
+            if (args.TryGetPosition(sender, out point))
+            {
+                keyVaultMenuFlyout.ShowAt(sender, point);
+            }
+            else
+            {
+                keyVaultMenuFlyout.ShowAt((FrameworkElement)sender);
+            }
+        }
     }
 }
