@@ -11,9 +11,10 @@
       devShells = forAll (pkgs:
         let
           dotnet = pkgs.dotnetCorePackages.sdk_10_0;
+          hp = pkgs.stdenv.hostPlatform;
           rid =
-            if pkgs.stdenv.isDarwin then (if pkgs.stdenv.isAarch64 then "osx-arm64" else "osx-x64")
-            else (if pkgs.stdenv.isAarch64 then "linux-arm64" else "linux-x64");
+            if hp.isDarwin then (if hp.isAarch64 then "osx-arm64" else "osx-x64")
+            else (if hp.isAarch64 then "linux-arm64" else "linux-x64");
 
           build-mac = pkgs.writeShellScriptBin "build-mac" ''
             set -euo pipefail
